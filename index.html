@@ -259,6 +259,9 @@ input[type=search]{width:100%}
 .tbl.sched th.po{outline:1px solid var(--accent);outline-offset:-1px;color:var(--accent)}
 .schedlead{background:color-mix(in oklab,var(--accent) 8%,var(--surface2));border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:9px 12px;margin:0 0 10px;font-size:13px;line-height:1.5}
 .schedlead b{color:var(--ink)}
+.helpbar{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 2px 10px;margin-bottom:4px;background:var(--bg)}
+.helpbar span{font-family:var(--display);font-size:19px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.iconbtn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 /* ---- roster ---- */
 .slots{display:grid;grid-template-columns:1fr;gap:6px;align-content:start}
 .slotwrap{display:grid;grid-template-columns:1fr;gap:12px}
@@ -667,9 +670,10 @@ function renderStatus(){ const el=$('#status'); const c=cur(); const av=$('#avat
   el.innerHTML = draftOver() ? `<span class="pill accent">Draft complete</span>` : onClock()
     ? `<span class="pill hot">YOU'RE UP · #${c} · R${roundOf(c)}</span><span class="pill">next #${nextMineAfter(c)||'—'}</span>`
     : `<span class="pill">#${c} · R${roundOf(c)} · ${esc(teamName(teamAt(c)))}</span><span class="pill accent">You: #${nm} (${away} away)</span>`;
-  el.insertAdjacentHTML('beforeend', roomPillHtml()+`<button class="iconbtn" id="undo" title="Undo the last pick that was logged" ${S.picks.length&&canLog()?'':'disabled'}>↶ Undo</button><button class="iconbtn" data-tab="help" title="Open the help page: what every number means and how to run the draft" aria-label="Help">?</button>`);
+  el.insertAdjacentHTML('beforeend', roomPillHtml()+`<button class="iconbtn" id="undo" title="Undo the last pick that was logged" ${S.picks.length&&canLog()?'':'disabled'}>↶ Undo</button><button class="iconbtn${S.tab==='help'?' on':''}" data-tab="help" title="${S.tab==='help'?'Close help and go back':'Open the help page: what every number means and how to run the draft'}" aria-label="Help">${S.tab==='help'?'✕ Close':'?'}</button>`);
 }
 function renderTabs(){ document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===S.tab)); }
+let helpPrev='board';
 function finishWelcome(slot,name){ const sl=Math.min(T(),Math.max(1,slot||1));
   S.slot=sl; S.name=(name||'').trim()||('Team '+sl);
   S.room.role=(roomState.skSlot&&roomState.skSlot===sl)?'log':'follow';
@@ -978,6 +982,7 @@ function renderSetup(v){ const m=D.meta; const sc=S.scoring;
 function renderHelp(v){ const mp=myPickNums(); const first=mp[0], second=mp[1], third=mp[2]; const nk=nextMine()||first;
   const board1=P.filter(p=>!drafted.has(p.id)&&['QB','RB','WR','TE'].includes(p.pos)).map(p=>[p,pAvail(p,nk)]).filter(x=>x[1]>=0.5).sort((a,b)=>a[0].ecr-b[0].ecr).slice(0,6);
   v.innerHTML=`<div class="help">
+  <div class="helpbar"><span>Help</span><button class="btn sm" data-tab="help">✕ Close help</button></div>
   <section class="card"><h2>How to run your draft with this</h2>
   <p class="muted">Your league doesn't sync picks, so <b>you are the scorekeeper</b>: every time anyone in the room drafts a player, you log it here. That takes one tap and keeps every number on the board honest.</p>
   <div class="toc">${[['#h-numbers','The numbers, decoded'],['#h-ir','The IR slot'],['#h-share','Sharing & the live board'],['#h-before','Before the draft'],['#h-during','During the draft'],['#h-board','Reading the board'],['#h-recs','How picks are chosen'],['#h-targets','Targets & avoid'],['#h-sim','Mock simulator'],['#h-chat','War-room chat'],['#h-intel','Intel tab'],['#h-mine','Mine tab'],['#h-picks','Picks & grades'],['#h-sched','Schedules'],['#h-setup','Setup: scoring & keepers'],['#h-data','Data & caveats']].map(([a,t])=>`<a class="chip" href="${a}">${t}</a>`).join('')}</div></section>
@@ -1127,6 +1132,7 @@ function renderHelp(v){ const mp=myPickNums(); const first=mp[0], second=mp[1], 
   <li>Sleeper's preseason "Questionable" tags are often noise (several top-10 players carry one). Red dots matter; yellow dots are a prompt to check.</li>
   <li>Availability odds assume your league drafts roughly like Yahoo drafters at large. The Intel "teams before you" panel and the simulator are the corrections.</li>
   <li>Draft state lives in this browser unless the live shared board is on, in which case the pick log is shared with everyone who has the link. Setup → Backup copies your state to another device.</li></ul></section>
+  <div class="row" style="justify-content:center;margin:4px 0 26px"><button class="btn primary" data-tab="help">✕ Close help and go back</button></div>
   </div>`; }
 
 /* ---- CHAT: ask Claude with the live board as context ---- */
@@ -1231,6 +1237,7 @@ document.addEventListener('click',e=>{ const t=e.target.closest('[data-tab],[dat
   if(t.dataset.keeperdel){ if(!isBoardOwner()||!canLog()) return; const pid=+t.dataset.keeperdel; S.keepers=S.keepers.filter(k=>k.pid!==pid); closeSheet(); render(); pushRoom(); toast('Keeper removed'); return; }
   if(t.dataset.kp){ const pid=+t.dataset.kp; const team=+($('#kpTeam')||{}).value||1; if(!drafted.has(pid)){ S.keepers.push({pid,team}); render(); pushRoom(); toast(`${byId.get(pid).name} kept by ${teamName(team)}`); } return; }
   const tipEl=t.closest&&t.closest('[data-tip]'); if(tipEl&&!t.closest('button,select,input,a,.brow:not(.head),.rec,.slot')){ toast(tipEl.dataset.tip); return; }
+  if(t.dataset.tab==='help'){ if(S.tab==='help'){ S.tab=helpPrev||'board'; } else { helpPrev=S.tab; S.tab='help'; } render(); window.scrollTo(0,0); return; }
   if(t.dataset.tab){ S.tab=t.dataset.tab; render(); window.scrollTo(0,0); return; }
   if(t.dataset.draft){ draftPlayer(+t.dataset.draft,+t.dataset.team); return; }
   if(t.dataset.undraft){ if(!isBoardOwner()||!canLog()) return; const pid=+t.dataset.undraft; const i=S.picks.findIndex(pk=>pk.pid===pid); if(i>=0){ if(i!==S.picks.length-1&&!confirm('This is not the latest pick. Removing it shifts every later pick up one slot. Continue?')) return; S.picks.splice(i,1); closeSheet(); render(); pushRoom(); toast('Pick removed'); } return; }
