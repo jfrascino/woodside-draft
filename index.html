@@ -347,6 +347,7 @@ const DEFAULT = {teams:12, slot:1, rounds:15, name:'My Team', setupDone:false,
   roster:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DST:1,BN:6,IR:1}, irPlus:false, playoff:[15,16,17], scoring:{passTd:4, ppr:0.5, tePrem:0},
   marks:{}, keepers:[], notes:'', teamNames:[], room:{on:true, role:'follow', code:'main'}, roomRev:0, picks:[], tab:'board', pos:'ALL', sort:'ecr', q:'', hideDrafted:true};
 let S = load();
+S.tab = 'board';   // always open on the draft board, whatever tab was last used
 (function inviteSeed(){ try{
   const h=new URLSearchParams((location.hash||'').replace(/^#/,''));
   const t=h.get('teams'); if(!t) return;
