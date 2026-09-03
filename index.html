@@ -257,6 +257,8 @@ input[type=search]{width:100%}
 .schedkey div:last-child{margin-bottom:0}
 .schedkey b{color:var(--ink)}
 .tbl.sched th.po{outline:1px solid var(--accent);outline-offset:-1px;color:var(--accent)}
+.schedlead{background:color-mix(in oklab,var(--accent) 8%,var(--surface2));border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:9px 12px;margin:0 0 10px;font-size:13px;line-height:1.5}
+.schedlead b{color:var(--ink)}
 /* ---- roster ---- */
 .slots{display:grid;grid-template-columns:1fr;gap:6px;align-content:start}
 .slotwrap{display:grid;grid-template-columns:1fr;gap:12px}
@@ -881,9 +883,14 @@ function renderSchedule(v){ const rows=TEAMS.map(t=>{ const w=D.schedule[t].slic
     return {t,w,season:avg(g.filter(x=>!S.playoff.includes(x.w)).map(x=>x.ease)),playoff:avg(g.filter(x=>S.playoff.includes(x.w)).map(x=>x.ease)),early:avg(g.filter(x=>x.w<=4).map(x=>x.ease))}; });
   rows.sort((a,b)=>schedSort==='team'?a.t.localeCompare(b.t):(b[schedSort]-a[schedSort]));
   let html=`<section class="card"><div class="row" style="justify-content:space-between"><h2>Strength of schedule — ${schedPos}s</h2><select id="ssort"><option value="playoff">Sort: playoff weeks</option><option value="season">Sort: weeks 1–14</option><option value="early">Sort: weeks 1–4</option><option value="team">Sort: team</option></select></div>
-    <div class="chips" style="margin:8px 0">${POS.map(x=>`<button class="chip pchip ${x}" data-spos="${x}" aria-pressed="${schedPos===x}">${x}</button>`).join('')}</div>
+    <div class="chips" style="margin:8px 0">${POS.map(x=>`<button class="chip pchip ${x}" data-spos="${x}" aria-pressed="${schedPos===x}"${tip('Show how every team\'s schedule looks for a '+x+'.')}>${x}</button>`).join('')}</div>
+    <div class="schedlead"><b>The number in each box is a matchup score from 0 to 100: how easy that week's opponent is for a ${schedPos}.</b> 50 is average. Green and high means that defence gives up a lot of points to ${schedPos}s, so it is a week you want. Red and low means they shut ${schedPos}s down. The letters above the number are who they play, with @ meaning away. Tap any box for the detail.</div>
     <div class="scroll"><table class="tbl sched"><tr><th title="NFL team. Every player on this team has this schedule.">Team</th><th class="r" title="Season average: how soft this team's matchups are across weeks 1-14, on a 0-100 scale where 50 is average.">Season</th><th class="r" title="Playoff average: how soft the matchups are in your fantasy playoff weeks (${S.playoff.join(', ')}). This is the column that decides close calls.">Playoffs</th>${Array.from({length:17},(_,i)=>`<th class="w${S.playoff.includes(i+1)?' po':''}" title="Week ${i+1}${S.playoff.includes(i+1)?' — one of your fantasy playoff weeks':''}">${i+1}</th>`).join('')}</tr>
-    ${rows.map(r=>`<tr><td class="team">${r.t}</td><td class="r"><span class="heat" style="${easeStyle(r.season)}">${Math.round(r.season)}</span></td><td class="r"><span class="heat" style="${easeStyle(r.playoff)}">${r.playoff==null?'—':Math.round(r.playoff)}</span></td>${r.w.map(x=>x.bye?`<td class="bye" title="Bye week — no game, ${r.t} players score nothing">—</td>`:`<td class="h" style="${easeStyle(x.ease)}${S.playoff.includes(x.w)?';outline:2px solid var(--ink);outline-offset:-2px':''}">${x.home?'':'@'}${x.opp}<span>${Math.round(x.ease)}</span></td>`).join('')}</tr>`).join('')}</table></div>
+    ${rows.map(r=>`<tr><td class="team">${r.t}</td><td class="r"><span class="heat" style="${easeStyle(r.season)}">${Math.round(r.season)}</span></td><td class="r"><span class="heat" style="${easeStyle(r.playoff)}">${r.playoff==null?'—':Math.round(r.playoff)}</span></td>${r.w.map(x=>{ if(x.bye) return `<td class="bye"${tip('Week '+x.w+': bye week. '+r.t+' does not play, so every '+r.t+' player scores zero.')}>—</td>`;
+      const pa=((D.dvp[x.opp]||{})[schedPos]||{}); const sc=Math.round(x.ease);
+      const word=sc>=70?'a great matchup':sc>=60?'a good matchup':sc>=45?'an average matchup':sc>=30?'a tough matchup':'a brutal matchup';
+      const t=`Week ${x.w}: ${r.t} ${x.home?'hosts':'plays at'} ${x.opp}. Matchup score ${sc} out of 100 — ${word} for a ${schedPos}. ${pa.ppg!=null?`${x.opp} gave up ${pa.ppg} fantasy points per game to ${schedPos}s last season, the ${ord(pa.rank)} most generous defence of 32 (1 = easiest to score on).`:''}${S.playoff.includes(x.w)?' This is one of your fantasy playoff weeks.':''}`;
+      return `<td class="h" style="${easeStyle(x.ease)}${S.playoff.includes(x.w)?';outline:2px solid var(--ink);outline-offset:-2px':''}"${tip(t)}>${x.home?'':'@'}${x.opp}<span>${sc}</span></td>`; }).join('')}</tr>`).join('')}</table></div>
     <div class="legend"><i style="background:var(--easy)"></i> soft matchup <i style="background:var(--mid)"></i> average <i style="background:var(--tough)"></i> tough matchup · outlined columns are your playoff weeks</div>
     <div class="schedkey">
       <div><b>How to read this table</b></div>
