@@ -883,7 +883,23 @@ function renderSchedule(v){ const rows=TEAMS.map(t=>{ const w=D.schedule[t].slic
   v.innerHTML=html; $('#ssort').value=schedSort; $('#ssort').onchange=e=>{schedSort=e.target.value;render();}; v.querySelectorAll('[data-spos]').forEach(b=>b.onclick=()=>{schedPos=b.dataset.spos;render();}); }
 
 /* ---- SETUP ---- */
+function avatarPick(e){ const f=e.target.files[0]; if(!f) return; const img=new Image(); img.onload=()=>{ const n=192, c=document.createElement('canvas'); c.width=n; c.height=n; const m=Math.min(img.width,img.height); c.getContext('2d').drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,n,n); S.avatar=c.toDataURL('image/jpeg',0.82); URL.revokeObjectURL(img.src); render(); toast('Photo added'); }; img.onerror=()=>toast('Could not read that image'); img.src=URL.createObjectURL(f); }
+function themeToggle(){ const r=document.documentElement; const dark=r.getAttribute('data-theme')==='dark'||(!r.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme: dark)').matches); r.setAttribute('data-theme',dark?'light':'dark'); try{localStorage.setItem(KEY+'-theme',dark?'light':'dark');}catch(e){} }
 function renderSetup(v){ const m=D.meta; const sc=S.scoring;
+  if(!isBoardOwner()){
+    v.innerHTML = `<section class="card setup"><h2>Your setup</h2>
+      <p class="small muted" style="margin:0 0 10px"><b>${esc(roomState.by||'The scorekeeper')}</b> runs this draft board and owns the league settings, so there is nothing here to change. You are <b>${esc(S.name)}</b>, picking ${ord(S.slot)}.</p>
+      <label class="f">Team photo</label><div class="row">${avatarSrc()?`<img class="avatar lg" src="${avatarSrc()}" alt="">`:'<span class="small muted">none yet</span>'}<input type="file" id="avatarFile" accept="image/*" style="max-width:220px">${S.avatar?'<button class="btn sm" id="avatarClear">Remove</button>':''}</div>
+      <p class="small muted" style="margin:4px 0 0">Stored in this browser only — nobody else can see it.</p>
+      <div class="row" style="margin-top:14px"><button class="btn" id="reidentify">I'm a different team</button><button class="btn" id="themeBtn">Toggle light/dark</button><button class="btn" data-tab="help">How to use this app</button></div>
+      <p class="small muted" style="margin:10px 0 0">Your picks in this draft: ${myPickNums().join(', ')}.</p></section>
+      <section class="card setup"><h2>Data</h2><p class="small" style="margin:0">Built ${esc(m.built)}. FantasyPros ECR updated ${esc(m.ecrUpdated)} from ${m.ecrExperts} experts.</p></section>`;
+    const af=$('#avatarFile'); if(af) af.onchange=avatarPick;
+    const ac=$('#avatarClear'); if(ac) ac.onclick=()=>{ delete S.avatar; render(); toast('Photo removed'); };
+    const ri=$('#reidentify'); if(ri) ri.onclick=()=>{ S.setupDone=false; render(); window.scrollTo(0,0); };
+    const tb=$('#themeBtn'); if(tb) tb.onclick=themeToggle;
+    return;
+  }
   v.innerHTML=`<section class="card setup"><h2>League</h2>
     <div class="row"><div><label class="f">Your team</label><input type="text" id="sName" value="${esc(S.name)}"></div><div><label class="f">Teams</label><input type="number" id="sTeams" min="4" max="20" value="${T()}"></div><div><label class="f">Your slot</label><input type="number" id="sSlot" min="1" max="${T()}" value="${S.slot}"></div><div><label class="f">Rounds</label><input type="number" id="sRounds" min="5" max="25" value="${R()}"></div><div><label class="f">Playoff weeks</label><input type="text" id="sPO" value="${S.playoff.join(',')}" style="width:110px"></div></div>
     <label class="f">Team photo</label><div class="row">${avatarSrc()?`<img class="avatar lg" src="${avatarSrc()}" alt="">`:'<span class="small muted">none yet</span>'}<input type="file" id="avatarFile" accept="image/*" style="max-width:220px">${S.avatar?'<button class="btn sm" id="avatarClear">Remove</button>':''}</div><p class="small muted" style="margin:4px 0 0">Shown in your header and on your roster. Stored in this browser only — nobody else who opens the app can see it.</p>
@@ -916,9 +932,9 @@ function renderSetup(v){ const m=D.meta; const sc=S.scoring;
     S.scoring={passTd:+$('#scPassTd').value||0, ppr:+$('#scPpr').value||0, tePrem:+$('#scTe').value||0}; S.notes=$('#sNotes').value.slice(0,3000);
     v.querySelectorAll('[data-r]').forEach(i=>S.roster[i.dataset.r]=Math.max(0,+i.value||0)); S.irPlus=$('#sIrPlus').checked; S.teamNames=Array.from(v.querySelectorAll('[data-tn]')).map(i=>i.value); lastSim=null; render(); pushRoom(); toast('Settings saved'); };
   const kq=$('#kpQ'); kq.oninput=()=>{ const q=kq.value.trim().toLowerCase(); const box=$('#kpMatches'); if(q.length<2){ box.innerHTML=''; return; } const m=P.filter(p=>!drafted.has(p.id)&&p.name.toLowerCase().includes(q)).slice(0,6); box.innerHTML=m.map(p=>`<button class="btn sm" data-kp="${p.id}"><b style="color:var(--${p.pos})">${p.pos}</b> ${esc(p.name)} <span class="muted">${p.team}</span></button>`).join('')||'<span class="small muted">no match</span>'; };
-  $('#avatarFile').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const img=new Image(); img.onload=()=>{ const n=192, c=document.createElement('canvas'); c.width=n; c.height=n; const m=Math.min(img.width,img.height); c.getContext('2d').drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,n,n); S.avatar=c.toDataURL('image/jpeg',0.82); URL.revokeObjectURL(img.src); render(); toast('Photo added'); }; img.onerror=()=>toast('Could not read that image'); img.src=URL.createObjectURL(f); };
+  $('#avatarFile').onchange=avatarPick;
   const ac=$('#avatarClear'); if(ac) ac.onclick=()=>{ delete S.avatar; render(); toast('Photo removed'); };
-  $('#themeBtn').onclick=()=>{ const r=document.documentElement; const dark=r.getAttribute('data-theme')==='dark'||(!r.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme: dark)').matches); r.setAttribute('data-theme',dark?'light':'dark'); try{localStorage.setItem(KEY+'-theme',dark?'light':'dark');}catch(e){} };
+  $('#themeBtn').onclick=themeToggle;
   $('#copyState').onclick=async()=>{ try{ await navigator.clipboard.writeText($('#stateBox').value); toast('Copied'); }catch(e){ $('#stateBox').select(); toast('Select & copy manually'); } };
   const tnSync=()=>{ S.teamNames=Array.from(v.querySelectorAll('[data-tn]')).map(x=>x.value);
     if(S.teamNames[S.slot-1]&&S.teamNames[S.slot-1].trim()) S.name=S.teamNames[S.slot-1].trim();
