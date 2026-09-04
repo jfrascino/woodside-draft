@@ -657,6 +657,7 @@ function roomPaint(){ const el=document.getElementById('roompill'); if(el) el.ou
 
 /* ---------------- rendering ---------------- */
 const $=s=>document.querySelector(s);
+const nkey=s=>String(s??'').toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function fmt(x,d){ return x==null?'—':(+x).toFixed(d==null?1:d); }
 function pct(x){ return x==null?'—':Math.round(x*100)+'%'; }
@@ -707,7 +708,7 @@ function render(){ rebuildDrafted(); computeRepl(); renderStatus(); renderTabs()
 
 /* ---- BOARD ---- */
 function filtered(){ let list=P.slice(); const q=S.q.trim().toLowerCase();
-  if(q) list=list.filter(p=>p.name.toLowerCase().includes(q)||p.team.toLowerCase()===q);
+  if(q){ const nq=nkey(q); list=list.filter(p=>nkey(p.name).includes(nq)||p.team.toLowerCase()===q); }
   if(S.pos==='TGT') list=list.filter(p=>markOf(p)==='target'); else if(S.pos==='IR') list=list.filter(p=>irEligible(p)); else if(S.pos==='FLEX') list=list.filter(p=>['RB','WR','TE'].includes(p.pos)); else if(S.pos!=='ALL') list=list.filter(p=>p.pos===S.pos);
   if(S.hideDrafted&&!q) list=list.filter(p=>!drafted.has(p.id));
   const nk=nextMine(cur()+ (onClock()?1:0));
@@ -959,7 +960,7 @@ function renderSetup(v){ const m=D.meta; const sc=S.scoring;
   $('#saveSetup').onclick=()=>{ S.name=$('#sName').value.trim()||('Team '+S.slot); S.teams=Math.max(4,+$('#sTeams').value||12); S.slot=Math.min(S.teams,Math.max(1,+$('#sSlot').value||4)); S.rounds=Math.max(5,+$('#sRounds').value||15); S.playoff=$('#sPO').value.split(/[,\s]+/).map(Number).filter(x=>x>=1&&x<=18); if(!S.playoff.length) S.playoff=[15,16,17];
     S.scoring={passTd:+$('#scPassTd').value||0, ppr:+$('#scPpr').value||0, tePrem:+$('#scTe').value||0}; S.notes=$('#sNotes').value.slice(0,3000);
     v.querySelectorAll('[data-r]').forEach(i=>S.roster[i.dataset.r]=Math.max(0,+i.value||0)); S.irPlus=$('#sIrPlus').checked; S.teamNames=Array.from(v.querySelectorAll('[data-tn]')).map(i=>i.value); lastSim=null; render(); pushRoom(); toast('Settings saved'); };
-  const kq=$('#kpQ'); kq.oninput=()=>{ const q=kq.value.trim().toLowerCase(); const box=$('#kpMatches'); if(q.length<2){ box.innerHTML=''; return; } const m=P.filter(p=>!drafted.has(p.id)&&p.name.toLowerCase().includes(q)).slice(0,6); box.innerHTML=m.map(p=>`<button class="btn sm" data-kp="${p.id}"><b style="color:var(--${p.pos})">${p.pos}</b> ${esc(p.name)} <span class="muted">${p.team}</span></button>`).join('')||'<span class="small muted">no match</span>'; };
+  const kq=$('#kpQ'); kq.oninput=()=>{ const q=nkey(kq.value); const box=$('#kpMatches'); if(q.length<2){ box.innerHTML=''; return; } const m=P.filter(p=>!drafted.has(p.id)&&nkey(p.name).includes(q)).slice(0,6); box.innerHTML=m.map(p=>`<button class="btn sm" data-kp="${p.id}"><b style="color:var(--${p.pos})">${p.pos}</b> ${esc(p.name)} <span class="muted">${p.team}</span></button>`).join('')||'<span class="small muted">no match</span>'; };
   $('#avatarFile').onchange=avatarPick;
   const ac=$('#avatarClear'); if(ac) ac.onclick=()=>{ delete S.avatar; render(); toast('Photo removed'); };
   $('#themeBtn').onclick=themeToggle;
@@ -1190,7 +1191,7 @@ ${S.name} drafts from slot ${S.slot} in a ${T()}-team snake draft, ${R()} rounds
 
 === THE MANAGER'S OWN GAME PLAN (written by ${S.name}; honor it, and say so when you deviate) ===
 ${S.notes.trim().slice(0,3000)}`:''}`; };
-function findPlayer(name){ const q=String(name||'').toLowerCase().trim(); if(!q) return null; return P.find(p=>p.name.toLowerCase()===q)||P.filter(p=>p.name.toLowerCase().includes(q)).sort((a,b)=>a.ecr-b.ecr)[0]||P.find(p=>p.name.toLowerCase().split(' ').some(w=>w.startsWith(q)))||null; }
+function findPlayer(name){ const q=nkey(name); if(!q) return null; return P.find(p=>nkey(p.name)===q)||P.filter(p=>nkey(p.name).includes(q)).sort((a,b)=>a.ecr-b.ecr)[0]||P.find(p=>p.name.toLowerCase().split(' ').some(w=>w.startsWith(q)))||null; }
 function chatTools(){ const c=cur(); const nk=onClock()?nextMineAfter(c):nextMine(); const nk2=nk?nextMineAfter(nk):null; return [
   {name:'player_card', description:'Full card for one player by name: rankings, all three ADPs, expert range, projection stat line, VORP, availability at my next two picks, tier count left, injury tag, and his week-by-week matchup softness (0-100, higher = easier) with playoff weeks marked. Use for any player not in the context or when matchups matter.', inputSchema:{type:'object',properties:{name:{type:'string'}},required:['name']},
     execute(inp){ const p=findPlayer(inp.name); if(!p) throw new Error('No player matching '+inp.name); const st=p.stats||{}; const s=sos(p); return {summary:fmtPlayer(p,nk,nk2), adp:{yahoo:p.yahooAdp,ffc:p.ffcAdp,ffcRange:p.ffcHigh?[p.ffcHigh,p.ffcLow]:null,sleeper:p.sleeperAdp}, tierLeft:`${tierLeft(p)}/${tierTotal(p)}`, age:p.age, exp:p.exp, depthChart:p.depth, stats:st, sos:s?{season:Math.round(s.season),playoff:s.playoff==null?null:Math.round(s.playoff),weeks:s.weeks.map(w=>w.bye?`w${w.w}:BYE`:`w${w.w}:${w.home?'':'@'}${w.opp} ${Math.round(w.ease)}${S.playoff.includes(w.w)?'*':''}`)}:null}; } },
