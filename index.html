@@ -587,8 +587,14 @@ let roomDoc=null, roomUnsub=null, roomPending=0, roomTimer=null, roomWarned=fals
 let roomState={s:'off'};
 function roomOn(){ return !!(S.room&&S.room.on); }
 function isFollower(){ return roomOn()&&roomState.s==='live'&&S.room.role==='follow'; }
-function canLog(){ return !isFollower(); }
-function isBoardOwner(){ if(!roomOn()||roomState.s!=='live') return true; return !roomState.skSlot||roomState.skSlot===S.slot; }
+function myTurn(n){ return teamAt(n||cur())===S.slot; }            // the seat on the clock is mine
+function canLog(){ if(draftOver()) return false;
+  return isBoardOwner() || myTurn();                                // scorekeeper covers the room; everyone else logs their own pick
+}
+function isBoardOwner(){
+  if(!roomOn()||roomState.s==='unavailable'||roomState.s==='error') return true;   // solo copy: you run your own board
+  return S.room.role==='log';   // decided once when you chose your team, from the board's own scorekeeper slot
+}
 function roomCode(){ return String((S.room&&S.room.code)||'main').replace(/[^A-Za-z0-9_-]/g,'').slice(0,48)||'main'; }
 function sanePicks(a){ if(!Array.isArray(a)) return null; const out=[], seen=new Set();
   for(const x of a){ if(!x||typeof x!=='object') continue; const pid=+x.pid, team=+x.team;
@@ -616,7 +622,7 @@ async function roomConnect(){
       roomState={s:'live', rev:(d&&+d.rev)||0, by:d?String(d.by||'').replace(/[^A-Za-z0-9 '&.!?/,()+-]/g,'').slice(0,40):'', at:d?d.at:null, skSlot:d&&+d.skSlot||0};
       if(d&&!roomPending) adoptRoom(d); else roomPaint();
     }, e=>{ roomState={s:'error', m:(e&&e.code)||'error'}; roomPaint(); });
-  if(S.room.role==='log'){ try{ const s0=await roomDoc.get();
+  if(isBoardOwner()){ try{ const s0=await roomDoc.get();
       const d0=s0.exists?(s0.data()||{}):null;
       const have=(saneNames(S.teamNames)||[]).filter(Boolean).length;
       const there=d0?((saneNames(d0.teamNames)||[]).filter(Boolean).length):0;
@@ -625,8 +631,8 @@ async function roomConnect(){
     }catch(e){} }
 }
 function adoptRoom(d){
-  if(roomDirty&&S.room.role==='log') return roomPaint();   // our own edits aren't written yet — never let a stale snapshot undo them
-  if(S.room.role==='log' && (+d.rev||0) < (S.roomRev||0)) return roomPaint();   // a late echo of our own older write must never roll the board back; followers never write, so remote is always truth for them
+  if(roomDirty) return roomPaint();                        // our own edits aren't written yet — never let a stale snapshot undo them
+  if((+d.rev||0) < (S.roomRev||0)) return roomPaint();     // a late echo of an older write must never roll the board back
   const picks=sanePicks(d.picks||[]); if(picks===null) return roomPaint();
   const keeps=sanePicks(d.keepers||[])||[];
   S.roomRev=+d.rev||0;
@@ -647,7 +653,7 @@ function adoptRoom(d){
   if(picks.length>before){ const p=byId.get(picks[picks.length-1].pid); toast(`#${picks.length} ${p?p.name:'pick'}${by?' · '+by:''}`); }
   else toast('Board updated'+(by?' by '+by:''));
 }
-function pushRoom(){ if(!roomDoc||!roomOn()||S.room.role!=='log') return; roomDirty=true; clearTimeout(roomTimer); roomTimer=setTimeout(doPush,400); }
+function pushRoom(){ if(!roomDoc||!roomOn()) return; roomDirty=true; clearTimeout(roomTimer); roomTimer=setTimeout(doPush,400); }
 async function doPush(){ if(!roomDoc) return;
   if(S.picks.length < lastRemotePicks-5 && (S.roomRev||0) < (roomState.rev||0)){   // a STALE device must never erase a draft in progress; your own undos are fine
     roomState={s:'error', m:'push blocked'}; roomPaint();
@@ -668,7 +674,7 @@ function roomStatusText(){ const st=roomState;
   if(st.s==='live') return `Room "${roomCode()}" · ${S.picks.length} picks logged${st.by?' · last by '+st.by:''}${st.at?' at '+new Date(st.at).toLocaleTimeString():''}`;
   return 'Connecting to the shared board…'; }
 function roomPillHtml(){ if(!roomOn()||roomState.s==='unavailable') return '<span id="roompill" hidden></span>';
-  const st=roomState, txt=st.s==='live'?('● Live'+(isFollower()?' · following':'')):st.s==='connecting'?'○ Live…':st.s==='unavailable'?'○ Live n/a':'○ Live '+(st.m||'off');
+  const st=roomState, txt=st.s==='live'?('● Live'+(isFollower()?' · shared':'')):st.s==='connecting'?'○ Live…':st.s==='unavailable'?'○ Live n/a':'○ Live '+(st.m||'off');
   return `<span id="roompill" class="pill ${st.s==='live'?'accent':''}" title="${esc(roomStatusText())}">${esc(txt)}</span>`; }
 function roomPaint(){ const el=document.getElementById('roompill'); if(el) el.outerHTML=roomPillHtml();
   const b=document.getElementById('roomStat'); if(b) b.textContent=roomStatusText(); }
@@ -692,7 +698,7 @@ function renderStatus(){ const el=$('#status'); const c=cur(); const av=$('#avat
   el.innerHTML = draftOver() ? `<span class="pill accent">Draft complete</span>` : onClock()
     ? `<span class="pill hot">YOU'RE UP · #${c} · R${roundOf(c)}</span><span class="pill">next #${nextMineAfter(c)||'—'}</span>`
     : `<span class="pill">#${c} · R${roundOf(c)} · ${esc(teamName(teamAt(c)))}</span><span class="pill accent">You: #${nm} (${away} away)</span>`;
-  el.insertAdjacentHTML('beforeend', roomPillHtml()+`<button class="iconbtn" id="undo" title="Undo the last pick that was logged" ${S.picks.length&&canLog()?'':'disabled'}>↶ Undo</button><button class="iconbtn${S.tab==='help'?' on':''}" data-tab="help" title="${S.tab==='help'?'Close help and go back':'Open the help page: what every number means and how to run the draft'}" aria-label="Help">${S.tab==='help'?'✕ Close':'?'}</button>`);
+  el.insertAdjacentHTML('beforeend', roomPillHtml()+`<button class="iconbtn" id="undo" title="${canUndo()?'Undo the last pick that was logged':'You can only undo your own last pick'}" ${canUndo()?'':'disabled'}>↶ Undo</button><button class="iconbtn${S.tab==='help'?' on':''}" data-tab="help" title="${S.tab==='help'?'Close help and go back':'Open the help page: what every number means and how to run the draft'}" aria-label="Help">${S.tab==='help'?'✕ Close':'?'}</button>`);
 }
 function renderTabs(){ document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===S.tab)); }
 let helpPrev='board';
@@ -747,10 +753,12 @@ function renderBoard(v){ const c=cur(); const nextK = onClock()? nextMineAfter(c
     <select id="sort"${tip('Change the order of the list below.')}><option value="ecr">Sort: expert rank</option><option value="adp">Sort: where he gets drafted</option><option value="proj">Sort: projected points</option><option value="vorp">Sort: value over waiver</option><option value="value">Sort: biggest bargains</option><option value="avail">Sort: most likely to last</option><option value="playoff">Sort: easiest playoff schedule</option><option value="season">Sort: easiest season schedule</option></select>
     <button class="chip" id="hide" aria-pressed="${S.hideDrafted}"${tip('On: the list shows only players still available. Off: drafted players stay visible so you can see who took them.')}>Hide taken</button></div>
     ${S.q.trim()&&!draftOver()?`<div class="qhint">${qt?`↵ Enter: <b>${esc(qt.name)}</b> → ${onClock()?'draft to '+esc(S.name):'taken by '+esc(teamName(qteam))}`:'no undrafted match'}</div>`:''}
-    ${canLog()&&!draftOver()?`<p class="boardhint">${onClock()
-        ? `<b>You're on the clock at #${cur()}.</b> Every row's button now says <b class="hot">Take</b> — tap it on the player you want and he joins your roster.`
-        : `<b>${esc(teamName(teamAt(cur())))} is picking (#${cur()}).</b> When they announce someone, find him in the list and tap <b>Mark gone</b> on his row — that logs him to ${esc(teamName(teamAt(cur())))} and he drops off the board. Every available player shows that button; you are picking which one they took. The button turns orange and says <b class="hot">Take</b> when it's your turn.`}</p>`:''}
-    ${isFollower()?`<p class="small" style="margin:0 0 8px;color:var(--accent)"><b>Following the shared board.</b> ${esc(roomState.by||'The scorekeeper')} logs every pick; they appear here automatically. To log picks yourself, switch to “Log picks” in Setup.</p>`:''}
+    ${!draftOver()?`<p class="boardhint">${onClock()
+        ? `<b>You're on the clock at #${cur()}.</b> Every row's button says <b class="hot">Take</b> — tap it on the player you want and he joins your roster.`
+        : canLog()
+          ? `<b>${esc(teamName(teamAt(cur())))} is picking (#${cur()}).</b> When they announce someone, find him and tap <b>Mark gone</b> on his row — that logs him to ${esc(teamName(teamAt(cur())))} for the whole league. Every available player shows that button; you are choosing which one they took.`
+          : `<b>${esc(teamName(teamAt(cur())))} is on the clock (#${cur()}).</b> ${esc(roomState.by||'The scorekeeper')} logs that pick and it will appear here on its own. Your next pick is <b class="hot">#${nextMine()||'—'}</b>.`}</p>`:''}
+    ${isFollower()&&!myTurn()&&!draftOver()?`<p class="small" style="margin:0 0 8px;color:var(--muted)">${esc(teamName(teamAt(cur())))} is on the clock at #${cur()} — ${esc(roomState.by||'the scorekeeper')} is logging that one. <b style="color:var(--accent)">Your pick is #${nextMine()||'—'}</b>, and the board will tell you when you're up.</p>`:''}
     <div class="chips" style="margin-bottom:8px">${['ALL','TGT','QB','RB','WR','TE','FLEX','K','DST'].concat(irSlots()?['IR']:[]).map(x=>{const tp={ALL:'Every position.',TGT:'Only the players you starred as targets.',FLEX:'Running backs, receivers and tight ends together — the players who can fill your flex slot.',IR:'Players on injured reserve or PUP who qualify for your IR slot. A late-round stash here costs a pick but no bench spot.',QB:'Quarterbacks only.',RB:'Running backs only.',WR:'Wide receivers only.',TE:'Tight ends only.',K:'Kickers only.',DST:'Team defences only.'}[x]; return `<button class="chip pchip ${x}" data-pos="${x}" aria-pressed="${S.pos===x}"${tip(tp)}>${x==='TGT'?'★ Targets':x==='IR'?'+ IR stash':x}</button>`;}).join('')}</div>`;
   const list=filtered().slice(0,S.q?60:200);
   html+=`<div class="board"><div class="brow head"><div${tip('Position, with his rank at that position. Colour-coded so you can scan for one position.')}>Pos</div><div class="name"${tip('Player name, team, bye week and age. Tap any row to open his full card.')}>Player</div><div class="col-d"${tip('Tier. Players inside one tier are close to interchangeable — the real drop-off is between tiers, so a tier with one player left is a warning.')}>Tier</div><div${tip('Expert consensus rank across '+D.meta.ecrExperts+' analysts. The small numbers under it are the lowest and highest rank any single expert gave him — a wide spread means the experts disagree, which is risk.')}>Rank</div><div class="col-d"${tip('Average draft position: the pick number where real drafters actually take him. Yahoo first, since that is your league. If ADP is well below his ECR, people reach for him; well above, he tends to fall to you.')}>Drafted at</div><div class="col-d"${tip('Projected total fantasy points for the season in your scoring. Divide by 17 for a per-game feel.')}>Points</div><div class="col-d"${tip('Value: projected points ABOVE a freely available waiver-wire player at his position. This is the number to compare across positions. 200+ is a league-winner, 100 to 150 a solid starter, 0 is waiver level.')}>Value</div><div class="col-d"${tip('Playoff matchup score, 0 to 100, for weeks '+S.playoff.join(', ')+'. 50 is average, above 60 means soft opponents, below 40 means tough ones. A tiebreaker between similar players, never a reason to reach.')}>Playoff</div><div${tip('The chance he is still on the board at your next pick, based on where drafters take him and who is already gone. Over 70% means you can wait; under 35% means now or never.')}>@#${nextK||'—'}</div><div class="col-d"${tip('His bye week, when he scores nothing. Two starters sharing a bye is fine; three is a problem the Mine tab will flag.')}>Bye</div><div></div></div>`;
@@ -815,11 +823,15 @@ function openSheet(pid){ sheetPid=pid; const p=byId.get(pid); const d=drafted.ge
   $('#closeSheet').onclick=closeSheet;
 }
 function closeSheet(){ $('#sheet').classList.remove('open'); $('#sheetbg').classList.remove('open'); sheetPid=null; }
-function draftPlayer(pid,team){ if(drafted.has(pid)) return; if(roomOn()&&roomState.s==='live'&&!isBoardOwner()){ toast('Only '+(roomState.by||'the scorekeeper')+' enters picks on this board.'); return; } if(!canLog()){ toast('Following the shared board — switch to “Log picks” in Setup to enter picks.'); return; } if(draftOver()){ toast('Draft is complete'); return; }
+function draftPlayer(pid,team){ if(drafted.has(pid)) return; if(!canLog()){ toast(draftOver()?'The draft is complete.':`#${cur()} is ${teamName(teamAt(cur()))}'s pick, logged by ${roomState.by||'the scorekeeper'}. Your pick is #${nextMine()||'—'}.`); return; } if(draftOver()){ toast('Draft is complete'); return; }
   const p=byId.get(pid); const onclock=teamAt(cur());   // the draft order decides the owner, never the caller
   S.picks.push({pid, team:onclock});
   closeSheet(); render(); pushRoom(); toast(`${p.name} → ${teamName(onclock)} (#${S.picks.length})`); }
-function undo(){ if(!S.picks.length||!canLog()||!isBoardOwner()) return; const pk=S.picks.pop(); render(); pushRoom(); toast(`Undid ${byId.get(pk.pid).name}`); }
+function canUndo(){ if(!S.picks.length) return false;
+  if(isBoardOwner()) return true;                                   // the scorekeeper can always roll the board back
+  return teamAt(S.picks.length)===S.slot;                           // otherwise only if the last pick was your own
+}
+function undo(){ if(!canUndo()) return; const pk=S.picks.pop(); render(); pushRoom(); toast(`Undid ${byId.get(pk.pid).name}`); }
 
 /* ---- MY TEAM ---- */
 function slotOrder(){ const r=S.roster, o=[]; ['QB','RB','WR','TE','FLEX','K','DST','BN','IR'].forEach(k=>{ for(let i=0;i<(r[k]||0);i++) o.push(k); }); return o; }
@@ -855,7 +867,7 @@ function leagueGrades(){ return Array.from({length:T()},(_,i)=>i+1).map(t=>{ con
   const po=st.map(p=>sos(p)).filter(s=>s&&s.playoff!=null).map(s=>s.playoff); const poAvg=po.length?po.reduce((a,b)=>a+b,0)/po.length:null;
   let steal=null; S.picks.forEach((pk,i)=>{ if(pk.team!==t) return; const p=byId.get(pk.pid); const dlt=adp(p)-(i+1); if(!steal||dlt>steal.d) steal={p,d:dlt}; });
   return {t,n:pl.length,sp,bp,clash,poAvg,steal}; }).sort((a,b)=>b.sp-a.sp); }
-function renderPicks(v){ let html=`<section class="card"><div class="row" style="justify-content:space-between"><h2>Draft log — pick ${Math.min(cur(),total())} of ${total()}</h2><div class="row">${isBoardOwner()&&canLog()?`<button class="btn sm" id="undo2" ${S.picks.length?'':'disabled'}>↶ Undo last</button><button class="btn sm danger" id="reset">Clear draft</button>`:'<span class="small muted">Read-only — the board is kept by '+esc(roomState.by||'the scorekeeper')+'</span>'}</div></div>
+function renderPicks(v){ let html=`<section class="card"><div class="row" style="justify-content:space-between"><h2>Draft log — pick ${Math.min(cur(),total())} of ${total()}</h2><div class="row">${isBoardOwner()&&canLog()?`<button class="btn sm" id="undo2" ${canUndo()?'':'disabled'}>↶ Undo last</button><button class="btn sm danger" id="reset">Clear draft</button>`:'<span class="small muted">Read-only — the board is kept by '+esc(roomState.by||'the scorekeeper')+'</span>'}</div></div>
   ${S.keepers.length?`<p class="small" style="margin:8px 0 0"><b>Keepers:</b> ${S.keepers.map(k=>{const p=byId.get(k.pid); return p?`<span data-open="${p.id}" style="cursor:pointer"><b style="color:var(--${p.pos})">${p.pos}</b> ${esc(p.name)} <span class="muted">(${esc(teamName(k.team))})</span></span>`:'';}).join(' · ')}</p>`:''}</section>`;
   if(S.picks.length||S.keepers.length){ const g=leagueGrades();
     html+=`<section class="card"><h2>League grades so far</h2><p class="small muted" style="margin:0 0 8px">Each team's best lineup from what they've drafted (auto-set like Mine). Bench = points sitting on the bench. Steal = their pick that fell furthest past its ADP.</p><div class="scroll"><table class="tbl"><tr><th>#</th><th>Team</th><th class="r">Picks</th><th class="r">Starters</th><th class="r">Bench</th><th class="r">Bye clash</th><th class="r">Playoff</th><th>Steal</th></tr>${g.map((x,i)=>`<tr ${x.t===S.slot?'style="background:color-mix(in oklab,var(--accent) 12%,var(--surface))"':''}><td class="num">${i+1}</td><td><b>${esc(teamName(x.t))}</b></td><td class="r">${x.n}</td><td class="r"><b>${fmt(x.sp,0)}</b></td><td class="r">${fmt(x.bp,0)}</td><td class="r">${x.clash||''}</td><td class="r">${x.poAvg==null?'—':`<span class="heat" style="${easeStyle(x.poAvg)}">${Math.round(x.poAvg)}</span>`}</td><td class="small">${x.steal&&x.steal.d>0?`${esc(x.steal.p.name)} <span class="muted">+${Math.round(x.steal.d)}</span>`:''}</td></tr>`).join('')}</table></div></section>`; }
@@ -964,7 +976,7 @@ function themeToggle(){ const r=document.documentElement; const dark=r.getAttrib
 function renderSetup(v){ const m=D.meta; const sc=S.scoring;
   if(!isBoardOwner()){
     v.innerHTML = `<section class="card setup"><h2>Your setup</h2>
-      <p class="small muted" style="margin:0 0 10px"><b>${esc(roomState.by||'The scorekeeper')}</b> runs this draft board and owns the league settings, so there is nothing here to change. You are <b>${esc(S.name)}</b>, picking ${ord(S.slot)}.</p>
+      <p class="small muted" style="margin:0 0 10px">You are <b>${esc(S.name)}</b>, picking ${ord(S.slot)}. <b>You make your own picks</b> — when #${nextMine()||'—'} comes around the board turns orange and you tap Take. ${esc(roomState.by||'The scorekeeper')} logs everyone else's picks and owns the league settings, so there is nothing to change here.</p>
       <label class="f">Team photo</label><div class="row">${avatarSrc()?`<img class="avatar lg" src="${avatarSrc()}" alt="">`:'<span class="small muted">none yet</span>'}<input type="file" id="avatarFile" accept="image/*" style="max-width:220px">${S.avatar?'<button class="btn sm" id="avatarClear">Remove</button>':''}</div>
       <p class="small muted" style="margin:4px 0 0">Stored in this browser only — nobody else can see it.</p>
       <div class="row" style="margin-top:14px"><button class="btn" id="reidentify">I'm a different team</button><button class="btn" id="themeBtn">Toggle light/dark</button><button class="btn" data-tab="help">How to use this app</button></div>
