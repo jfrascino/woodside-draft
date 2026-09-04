@@ -265,6 +265,19 @@ input[type=search]{width:100%}
 .boardhint{margin:0 0 8px;padding:7px 10px;background:var(--surface2);border-left:3px solid var(--line2);border-radius:0 8px 8px 0;font-size:13px;line-height:1.45;color:var(--muted)}
 .boardhint b{color:var(--ink)}
 .boardhint b.hot{color:var(--hot)}
+.runway{display:flex;flex-direction:column;gap:9px}
+.rwrow{display:grid;grid-template-columns:38px 1fr;gap:8px;align-items:center}
+.rwrow>b{font-family:var(--display);font-size:17px;letter-spacing:.04em;cursor:help}
+.rwbar{position:relative;display:flex;gap:3px;height:34px}
+.rwseg{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:5px;min-width:24px;overflow:hidden;color:#fff;cursor:help}
+.rwseg i{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.06em;opacity:.85;line-height:1}
+.rwseg u{text-decoration:none;font-family:var(--display);font-size:15px;font-weight:700;line-height:1.05}
+.rwseg.empty{flex:1;background:var(--surface2);color:var(--muted);font-size:12px}
+.rwcut{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);border-radius:2px;cursor:help}
+.rwcut::after{content:'';position:absolute;top:-4px;left:-3px;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--ink)}
+.rwv{grid-column:2;font-size:12px;font-weight:700;letter-spacing:.02em;margin-top:-3px}
+.rwv.hot{color:var(--hot)} .rwv.warn{color:var(--warn)} .rwv.good{color:var(--good)}
+@media(max-width:560px){.rwbar{height:30px}.rwseg u{font-size:13px}}
 /* ---- roster ---- */
 .slots{display:grid;grid-template-columns:1fr;gap:6px;align-content:start}
 .slotwrap{display:grid;grid-template-columns:1fr;gap:12px}
@@ -870,6 +883,31 @@ function renderInsights(v){ const c=cur(); const nextK=onClock()?nextMineAfter(c
       html+=`<section class="card"><h2>Projected board at #${following}</h2><p class="small muted" style="margin:0 0 8px">Best players with a ≥50% chance to reach your pick after next. If your target is here, you can afford to wait.</p><div class="names">${pool2.map(([p,pa])=>`<span data-open="${p.id}" style="cursor:pointer;display:inline-block;margin:2px 8px 2px 0"><b style="color:var(--${p.pos})">${p.pos}</b> ${esc(p.name)} <i class="muted small">${Math.round(pa*100)}%</i></span>`).join('')}</div></section>`; }
   }
   // tiers
+  html+=`<section class="card"><h2>Tier runway${nextK?` — what survives to your pick at #${nextK}`:''}</h2>
+    <p class="small muted" style="margin:0 0 10px">Each block is one tier of players still on the board, sized by how many are left. ${nextK?`The line marks how far the board gets before your pick at <b>#${nextK}</b>, <b>${nextK-c} picks away</b>. Anything left of it is likely gone.`:'The draft is over.'}</p>
+    <div class="runway">${['RB','WR','TE','QB'].map(pos=>{
+      const tiers={}; P.filter(x=>x.pos===pos&&x.tier&&!drafted.has(x.id)).forEach(x=>{(tiers[x.tier]=tiers[x.tier]||[]).push(x);});
+      const keys=Object.keys(tiers).map(Number).sort((a,b)=>a-b).slice(0,6);
+      const total=keys.reduce((n,t)=>n+tiers[t].length,0)||1;
+      // expected number of this position still on the board at my next pick
+      const survivors=nextK?keys.map(t=>tiers[t].reduce((n,x)=>n+pAvail(x,nextK),0)):keys.map(()=>0);
+      let run=0, cutAt=null;
+      if(nextK){ const goneTotal=keys.reduce((n,t,i)=>n+(tiers[t].length-survivors[i]),0); let acc=0;
+        for(let i=0;i<keys.length;i++){ const seg=tiers[keys[i]].length; if(acc+seg>=goneTotal){ cutAt=(acc+(goneTotal-acc))/total*100; break; } acc+=seg; }
+        if(cutAt==null) cutAt=100; }
+      const top=keys[0]!=null?tiers[keys[0]]:[];
+      const topLeft=top.length, topSurv=nextK?survivors[0]:topLeft;
+      const verdict = !nextK ? '' :
+        topSurv<0.7 ? {t:`Tier ${keys[0]} gone by #${nextK}`,c:'hot'} :
+        topSurv<1.8 ? {t:`~${topSurv.toFixed(1)} of tier ${keys[0]} left at #${nextK}`,c:'warn'} :
+        {t:`~${topSurv.toFixed(1)} of tier ${keys[0]} still there`,c:'good'};
+      return `<div class="rwrow">
+        <b style="color:var(--${pos})"${tip(pos+': '+topLeft+' player'+(topLeft===1?'':'s')+' left in tier '+keys[0]+'.'+(nextK?' About '+topSurv.toFixed(1)+' of them should still be on the board at your pick #'+nextK+'.':''))}>${pos}</b>
+        <div class="rwbar">${keys.map((t,i)=>`<span class="rwseg" style="flex:${tiers[t].length};background:var(--${pos});opacity:${Math.max(.18,1-i*0.17)}"${tip('Tier '+t+': '+tiers[t].length+' left — '+tiers[t].slice(0,5).map(x=>x.name).join(', ')+(tiers[t].length>5?' +'+(tiers[t].length-5)+' more':''))}><i>T${t}</i><u>${tiers[t].length}</u></span>`).join('')||'<span class="rwseg empty">none left</span>'}
+          ${nextK&&cutAt!=null?`<span class="rwcut" style="left:${Math.min(99.4,cutAt)}%"${tip('The board gets about this far before your pick at #'+nextK+'. Players to the left are likely gone.')}></span>`:''}</div>
+        ${verdict?`<span class="rwv ${verdict.c}">${esc(verdict.t)}</span>`:''}
+      </div>`; }).join('')}</div>
+    <p class="small muted" style="margin:10px 0 0">Read it in one glance: a short first block with a red note means that position falls off a cliff before you pick again — take it now. A long first block means the position is deep and you can spend this pick elsewhere.</p></section>`;
   html+=`<section class="card"><h2>Tier board</h2><p class="small muted" style="margin:0 0 8px">Remaining players per FantasyPros tier. When a tier is down to its last one or two, the drop-off is coming.</p><div class="tiers">${['RB','WR','QB','TE'].map(pos=>{ const tiers={}; P.filter(p=>p.pos===pos&&p.tier&&p.tier<=8).forEach(p=>{(tiers[p.tier]=tiers[p.tier]||[]).push(p);});
     return `<div><h3 style="color:var(--${pos})">${pos}</h3>${Object.entries(tiers).map(([t,arr])=>{ const left=arr.filter(p=>!drafted.has(p.id)); return `<div class="tierrow ${left.length?'':'gone'}"><span class="cnt">T${t} <span class="muted small">${left.length}/${arr.length}</span></span><span class="names">${left.length?esc(left.slice(0,6).map(p=>p.name.split(' ').slice(-1)[0]).join(', '))+(left.length>6?` +${left.length-6}`:''):'gone'}</span></div>`; }).join('')}</div>`; }).join('')}</div></section>`;
   // scarcity
@@ -1086,6 +1124,7 @@ function renderHelp(v){ const mp=myPickNums(); const first=mp[0], second=mp[1], 
   <li><b>Before your pick #N:</b> the teams that pick in the gap and their current position counts. Teams with an empty RB or WR slot in the early rounds almost always fill it.</li>
   <li><b>Who survives:</b> the top 36 available split into probably gone / coin flip / likely there. The coin-flip group is where your real decision lives.</li>
   <li><b>Projected board at your pick after next:</b> players with a 50%+ chance to reach that pick. If your target is listed, you have room to take something else first.</li>
+  <li><b>Tier runway:</b> the one-glance version of scarcity. One bar per position, split into blocks for each tier still on the board, sized by how many players are left. The vertical line marks how far the draft gets before your next pick, so anything left of it is probably gone. A short first block with a red note means that position falls off a cliff before you pick again — take it now. A long first block means you can safely spend this pick elsewhere.</li>
   <li><b>Tier board:</b> remaining count in each tier by position. "T2 1/6 left" means one more pick empties the tier.</li>
   <li><b>Positional drop-off:</b> VORP of the best, 6th, and 12th available at each position. A steep curve means scarcity.</li>
   <li><b>Momentum:</b> run detection over the last six picks.</li>
