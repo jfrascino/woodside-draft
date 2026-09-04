@@ -780,26 +780,24 @@ function openSheet(pid){ sheetPid=pid; const p=byId.get(pid); const d=drafted.ge
   ${s?`<h3>Matchups — ${p.pos} vs each defense</h3><div class="row small" style="margin:4px 0 2px;gap:14px"><span>Weeks 1–14 <b class="heat" style="${easeStyle(s.season)}">${Math.round(s.season)}</b> ${easeWord(s.season)}</span><span>Playoffs ${S.playoff.join('–')} <b class="heat" style="${easeStyle(s.playoff)}">${s.playoff==null?'—':Math.round(s.playoff)}</b> ${easeWord(s.playoff)}</span><span>Weeks 1–4 <b class="heat" style="${easeStyle(s.early)}">${Math.round(s.early)}</b></span></div>
   <div class="wk">${s.weeks.map(w=>w.bye?`<div class="bye">BYE<span>w${w.w}</span></div>`:`<div class="${S.playoff.includes(w.w)?'po':''}" style="${easeStyle(w.ease)}" title="Week ${w.w}: ${w.home?'vs':'@'} ${w.opp} · softness ${Math.round(w.ease)}">${w.home?'':'@'}${w.opp}<span>w${w.w}</span></div>`).join('')}</div>
   <p class="small muted" style="margin:4px 0 10px">Softness 100 = most fantasy points allowed to ${p.pos}s. Blend of 2025 points allowed per game (65%) and 2026 defense outlook from DST consensus rank (35%). Outlined weeks are your playoffs.</p>`:''}
-  <div class="row" style="margin-top:6px"><button class="btn sm" data-mark="target" data-pid="${p.id}">${markOf(p)==='target'?'★ Target ✓':'☆ Target'}</button><button class="btn sm" data-mark="avoid" data-pid="${p.id}">${markOf(p)==='avoid'?'✕ Avoid ✓':'✕ Avoid'}</button>${!d?`<select id="keeperBy" class="btn sm"><option value="">Keeper for…</option>${Array.from({length:T()},(_,i)=>i+1).map(t=>`<option value="${t}">${esc(teamName(t))}</option>`).join('')}</select>`:''}</div>
+  <div class="row" style="margin-top:6px"><button class="btn sm" data-mark="target" data-pid="${p.id}">${markOf(p)==='target'?'★ Target ✓':'☆ Target'}</button><button class="btn sm" data-mark="avoid" data-pid="${p.id}">${markOf(p)==='avoid'?'✕ Avoid ✓':'✕ Avoid'}</button>${!d&&canLog()&&(!S.picks.length||(S.keepers||[]).length)?`<select id="keeperBy" class="btn sm" title="Only for players already owned before the draft starts. Hidden once picks begin."><option value="">Keeper for…</option>${Array.from({length:T()},(_,i)=>i+1).map(t=>`<option value="${t}">${esc(teamName(t))}</option>`).join('')}</select>`:''}</div>
   <div class="row" style="margin-top:6px">
     ${!canLog()?`<span class="small muted">Following the shared board — picks are logged by ${esc(roomState.by||'the scorekeeper')}.</span>`:''}
-    ${canLog()&&!d?`<button class="btn hot" data-draft="${p.id}" data-team="${S.slot}">Draft to ${esc(S.name)}</button>
-    ${canLog()&&!draftOver()?`<button class="btn primary" data-draft="${p.id}" data-team="${teamAt(cur())}">Taken by ${esc(teamName(teamAt(cur())))} (#${cur()})</button>`:''}
-    <select id="takenBy" class="btn"><option value="">Taken by other team…</option>${Array.from({length:T()},(_,i)=>i+1).filter(t=>t!==S.slot&&t!==teamAt(cur())).map(t=>`<option value="${t}">${esc(teamName(t))}</option>`).join('')}</select>`
+    ${canLog()&&!d?`${draftOver()?'<span class="small muted">Draft complete.</span>':onClock()
+      ? `<button class="btn hot" data-draft="${p.id}" data-team="${S.slot}">Draft to ${esc(S.name)} (#${cur()})</button>`
+      : `<button class="btn primary" data-draft="${p.id}" data-team="${teamAt(cur())}">Mark gone — taken by ${esc(teamName(teamAt(cur())))} (#${cur()})</button>`}`
     :(!canLog()?'':(d.keeper?`<button class="btn danger" data-keeperdel="${p.id}">Remove keeper</button>`:`<button class="btn danger" data-undraft="${p.id}">Remove this pick</button>`))}
     ${p.url?`<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">FantasyPros page ↗</a>`:''}
   </div>`;
   const sh=$('#sheet'); sh.innerHTML=html; sh.classList.add('open'); $('#sheetbg').classList.add('open'); sh.scrollTop=0;
   $('#closeSheet').onclick=closeSheet;
-  const tb=$('#takenBy'); if(tb) tb.onchange=()=>{ if(tb.value) draftPlayer(p.id,+tb.value); };
   const kb=$('#keeperBy'); if(kb) kb.onchange=()=>{ if(kb.value){ S.keepers.push({pid:p.id,team:+kb.value}); closeSheet(); render(); pushRoom(); toast(`${p.name} kept by ${teamName(+kb.value)}`); } };
 }
 function closeSheet(){ $('#sheet').classList.remove('open'); $('#sheetbg').classList.remove('open'); sheetPid=null; }
 function draftPlayer(pid,team){ if(drafted.has(pid)) return; if(roomOn()&&roomState.s==='live'&&!isBoardOwner()){ toast('Only '+(roomState.by||'the scorekeeper')+' enters picks on this board.'); return; } if(!canLog()){ toast('Following the shared board — switch to “Log picks” in Setup to enter picks.'); return; } if(draftOver()){ toast('Draft is complete'); return; }
-  const p=byId.get(pid); const onclock=teamAt(cur());
-  if(team!==onclock){ // out-of-order pick: record as taken by the team on the clock unless it's you drafting ahead of turn
-    S.picks.push({pid,team}); } else S.picks.push({pid,team});
-  closeSheet(); render(); pushRoom(); toast(`${p.name} → ${teamName(team)} (#${S.picks.length})`); }
+  const p=byId.get(pid); const onclock=teamAt(cur());   // the draft order decides the owner, never the caller
+  S.picks.push({pid, team:onclock});
+  closeSheet(); render(); pushRoom(); toast(`${p.name} → ${teamName(onclock)} (#${S.picks.length})`); }
 function undo(){ if(!S.picks.length||!canLog()||!isBoardOwner()) return; const pk=S.picks.pop(); render(); pushRoom(); toast(`Undid ${byId.get(pk.pid).name}`); }
 
 /* ---- MY TEAM ---- */
@@ -1028,7 +1026,7 @@ function renderHelp(v){ const mp=myPickNums(); const first=mp[0], second=mp[1], 
   ${board1.length?`<div class="tip"><b>Right now, likely on the board at #${nk}:</b> ${board1.map(([p,pa])=>`${esc(p.name)} (${Math.round(pa*100)}%)`).join(', ')}.</div>`:''}</section>
 
   <section class="card" id="h-during"><h2>During the draft</h2>
-  <div class="step"><b class="n">1</b><div><b>Someone else picks →</b> three ways, fastest first: <b>(a)</b> type a few letters in search and press <kbd>Enter</kbd> — the hint under the box shows exactly who will be logged and to which team; <b>(b)</b> tap the <b>Gone</b> button on the row; <b>(c)</b> tap the row and use the "Taken by" button on the card. The app always knows whose turn it is, so all three log to the team on the clock. If a pick was entered out of order, use the "Taken by other team…" menu on the card.</div></div>
+  <div class="step"><b class="n">1</b><div><b>Someone else picks →</b> three ways, fastest first: <b>(a)</b> type a few letters in search and press <kbd>Enter</kbd> — the hint under the box shows exactly who will be logged and to which team; <b>(b)</b> tap the <b>Gone</b> button on the row; <b>(c)</b> tap the row and use the "Taken by" button on the card. The app always knows whose turn it is, so all three log to the team on the clock. Every pick is recorded against whoever is on the clock, so you can never hand one to the wrong team by accident. Logged the wrong player? Hit Undo, or open him and tap "Remove this pick".</div></div>
   <div class="step"><b class="n">2</b><div><b>You're on the clock →</b> the header pulses <span class="pill hot" style="animation:none">YOU'RE UP</span>, the row buttons turn into <b>Take</b>, and the top three cards show the recommendation with reasons. <kbd>Enter</kbd> in search drafts the match to you. You are never limited to the three cards — any row's Take button works.</div></div>
   <div class="step"><b class="n">3</b><div><b>Made a mistake →</b> <b>↶ Undo</b> in the header removes the last pick. For an earlier pick, open that player and tap "Remove this pick" (later picks shift up one slot, so re-check the log).</div></div>
   <div class="step"><b class="n">4</b><div><b>Between your picks →</b> glance at <b>Intel</b>: your targets' survival odds, who is likely gone before you, which teams pick before you and what they need, whether a run has started. Re-run the simulator if the board has gone weird.</div></div>
