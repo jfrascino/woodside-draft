@@ -583,7 +583,7 @@ function fbDoc(path){
     }
   };
 }
-let roomDoc=null, roomUnsub=null, roomPending=0, roomTimer=null, roomWarned=false, roomDirty=false;
+let roomDoc=null, roomUnsub=null, roomPending=0, roomTimer=null, roomWarned=false, roomDirty=false, lastRemotePicks=0;
 let roomState={s:'off'};
 function roomOn(){ return !!(S.room&&S.room.on); }
 function isFollower(){ return roomOn()&&roomState.s==='live'&&S.room.role==='follow'; }
@@ -612,6 +612,7 @@ async function roomConnect(){
   catch(e){ roomState={s:'error',m:'bad room code'}; return roomPaint(); }
   roomUnsub=roomDoc.onSnapshot(snap=>{
       const d=snap.exists?snap.data():null;
+      if(d&&Array.isArray(d.picks)) lastRemotePicks=d.picks.length; else if(d) lastRemotePicks=0;
       roomState={s:'live', rev:(d&&+d.rev)||0, by:d?String(d.by||'').replace(/[^A-Za-z0-9 '&.!?/,()+-]/g,'').slice(0,40):'', at:d?d.at:null, skSlot:d&&+d.skSlot||0};
       if(d&&!roomPending) adoptRoom(d); else roomPaint();
     }, e=>{ roomState={s:'error', m:(e&&e.code)||'error'}; roomPaint(); });
@@ -648,6 +649,10 @@ function adoptRoom(d){
 }
 function pushRoom(){ if(!roomDoc||!roomOn()||S.room.role!=='log') return; roomDirty=true; clearTimeout(roomTimer); roomTimer=setTimeout(doPush,400); }
 async function doPush(){ if(!roomDoc) return;
+  if(S.picks.length < lastRemotePicks-5 && (S.roomRev||0) < (roomState.rev||0)){   // a STALE device must never erase a draft in progress; your own undos are fine
+    roomState={s:'error', m:'push blocked'}; roomPaint();
+    toast(`Blocked: this device has ${S.picks.length} picks but the league board has ${lastRemotePicks}. Reload to catch up.`);
+    return; }
   const body={rev:(S.roomRev||0)+1, picks:S.picks.map(x=>({pid:x.pid,team:x.team})),
     keepers:(S.keepers||[]).map(x=>({pid:x.pid,team:x.team})), teamNames:saneNames(S.teamNames)||[], skSlot:S.slot,
     by:String(S.name||'').slice(0,40), at:new Date().toISOString()};
@@ -710,7 +715,10 @@ function renderWelcome(v){
     ${sk?`<p class="small muted" style="margin:14px 0 0">${esc(sk)} enters every pick for the whole league. You just watch the board and get advice for your own team.</p>`:''}
   </section>`;
   v.querySelectorAll('[data-pickteam]').forEach(b=>b.onclick=()=>{
-    const i=+b.dataset.pickteam; finishWelcome(i, String((S.teamNames||[])[i-1]||'').trim()); });
+    const i=+b.dataset.pickteam; const nm=String((S.teamNames||[])[i-1]||'').trim();
+    const takingOver = roomOn() && roomState.s==='live' && roomState.skSlot===i && S.slot!==i && lastRemotePicks>0;
+    if(takingOver && !confirm(`${nm||'That team'} is the one entering picks for the whole league right now.\n\nOnly choose this if you are ${nm} and you are taking over the draft board. If you are not, pick your own team instead.\n\nContinue as ${nm}?`)) return;
+    finishWelcome(i, nm); });
 }
 function render(){ rebuildDrafted(); computeRepl(); renderStatus(); renderTabs(); const v=$('#view'); v.innerHTML='';
   const nav=document.getElementById('tabs'); if(nav) nav.style.display=S.setupDone?'':'none';
@@ -856,7 +864,9 @@ function renderPicks(v){ let html=`<section class="card"><div class="row" style=
       html+=`<div class="pk ${t===S.slot?'mine':''} ${n===cur()?'cur':''}" ${p?`data-open="${p.id}"`:''}><span class="n">${n}</span><span class="t">${esc(teamName(pk?pk.team:t))}</span><span class="p">${p?`<i style="--pc:var(--${p.pos})">${p.pos}</i>${esc(p.name)}`:(n===cur()?'<span class="muted">on the clock</span>':'')}</span></div>`; } html+='</div>'; }
   html+='</div>'; v.innerHTML=html;
   const u2=$('#undo2'); if(u2) u2.onclick=undo;
-  const rs=$('#reset'); if(rs) rs.onclick=()=>{ if(!isBoardOwner()||!canLog()) return; if(confirm('Clear every pick and start the draft over? (Keepers, targets and settings stay.)')){ S.picks=[]; lastSim=null; render(); pushRoom(); toast('Draft cleared'); } }; }
+  const rs=$('#reset'); if(rs) rs.onclick=()=>{ if(!isBoardOwner()||!canLog()) return; if(confirm(roomOn()&&roomState.s==='live'
+      ? `Clear all ${S.picks.length} picks and start the draft over?\n\nThis wipes the board for EVERYONE in the league, not just you. Their screens will empty too.\n\n(Team names, targets and settings stay.)`
+      : `Clear all ${S.picks.length} picks and start the draft over? (Team names, targets and settings stay.)`)){ S.picks=[]; lastSim=null; render(); pushRoom(); toast('Draft cleared'); } }; }
 
 /* ---- INSIGHTS ---- */
 function renderInsights(v){ const c=cur(); const nextK=onClock()?nextMineAfter(c):nextMine(); const following=nextK?nextMineAfter(nextK):null; let html='';
@@ -994,7 +1004,11 @@ function renderSetup(v){ const m=D.meta; const sc=S.scoring;
 
     <section class="card"><h2>Backup / restore</h2><p class="small muted" style="margin:0 0 6px">State lives in this browser only. Copy this to move the draft to another device, or paste one in and restore.</p><textarea id="stateBox">${esc(JSON.stringify({picks:S.picks,keepers:S.keepers,marks:S.marks,teamNames:S.teamNames,notes:S.notes,roster:S.roster,scoring:S.scoring,slot:S.slot,teams:S.teams,rounds:S.rounds,playoff:S.playoff,name:S.name}))}</textarea><div class="row" style="margin-top:6px"><button class="btn" id="copyState">Copy</button><button class="btn danger" id="restoreState">Restore from box</button></div></section>
     <section class="card"><h2>Data</h2><p class="small" style="margin:0">Built ${esc(m.built)}. FantasyPros ECR updated ${esc(m.ecrUpdated)} (${m.ecrExperts} experts, half-PPR). Yahoo ADP pulled live from Yahoo's public draft-analysis feed. FFC ADP: ${m.ffc?m.ffc.total_drafts+' drafts, '+m.ffc.start_date+' → '+m.ffc.end_date:'—'}. Projections: Sleeper/Rotowire season totals. Schedule: ESPN 2026. Points allowed: Sleeper 2025 weekly box scores. Injury tags: Sleeper (preseason "Questionable" tags are often noise — trust the news, not the dot).</p><p class="small muted">Value over replacement (VORP) baseline: QB${Math.round(14*T()/12)}, RB${Math.round(34*T()/12)}, WR${Math.round(34*T()/12)}, TE${Math.round(14*T()/12)}, K/DST${T()} — roughly the last usable starter in a ${T()}-team league. Availability uses a normal model on ADP with FFC's pick spread, conditioned on the player still being on the board now.</p></section>`;
-  $('#saveSetup').onclick=()=>{ S.name=$('#sName').value.trim()||('Team '+S.slot); S.teams=Math.max(4,+$('#sTeams').value||12); S.slot=Math.min(S.teams,Math.max(1,+$('#sSlot').value||4)); S.rounds=Math.max(5,+$('#sRounds').value||15); S.playoff=$('#sPO').value.split(/[,\s]+/).map(Number).filter(x=>x>=1&&x<=18); if(!S.playoff.length) S.playoff=[15,16,17];
+  $('#saveSetup').onclick=()=>{
+    const nT=Math.max(4,+$('#sTeams').value||12), nS=Math.min(nT,Math.max(1,+$('#sSlot').value||4)), nR=Math.max(5,+$('#sRounds').value||15);
+    if(S.picks.length && (nT!==S.teams||nS!==S.slot||nR!==S.rounds) &&
+       !confirm(`The draft is already ${S.picks.length} picks in.\n\nChanging the number of teams, your draft slot or the number of rounds now will re-assign which pick belongs to which team and scramble the log.\n\nOnly do this if you set something up wrong. Continue?`)) return;
+    S.name=$('#sName').value.trim()||('Team '+S.slot); S.teams=Math.max(4,+$('#sTeams').value||12); S.slot=Math.min(S.teams,Math.max(1,+$('#sSlot').value||4)); S.rounds=Math.max(5,+$('#sRounds').value||15); S.playoff=$('#sPO').value.split(/[,\s]+/).map(Number).filter(x=>x>=1&&x<=18); if(!S.playoff.length) S.playoff=[15,16,17];
     S.scoring={passTd:+$('#scPassTd').value||0, ppr:+$('#scPpr').value||0, tePrem:+$('#scTe').value||0}; S.notes=$('#sNotes').value.slice(0,3000);
     v.querySelectorAll('[data-r]').forEach(i=>S.roster[i.dataset.r]=Math.max(0,+i.value||0)); S.irPlus=$('#sIrPlus').checked; S.teamNames=Array.from(v.querySelectorAll('[data-tn]')).map(i=>i.value); lastSim=null; render(); pushRoom(); toast('Settings saved'); };
   const kq=$('#kpQ'); kq.oninput=()=>{ const q=nkey(kq.value); const box=$('#kpMatches'); if(q.length<2){ box.innerHTML=''; return; } const m=P.filter(p=>!drafted.has(p.id)&&nkey(p.name).includes(q)).slice(0,6); box.innerHTML=m.map(p=>`<button class="btn sm" data-kp="${p.id}"><b style="color:var(--${p.pos})">${p.pos}</b> ${esc(p.name)} <span class="muted">${p.team}</span></button>`).join('')||'<span class="small muted">no match</span>'; };
@@ -1015,7 +1029,9 @@ function renderSetup(v){ const m=D.meta; const sc=S.scoring;
   const ri=$('#reidentify'); if(ri) ri.onclick=()=>{ S.setupDone=false; render(); window.scrollTo(0,0); };
   const rmOn=$('#rmOn'); if(rmOn) rmOn.onchange=e=>{ S.room.on=e.target.checked; save(); render(); roomConnect(); };
   const rmRole=$('#rmRole'); if(rmRole) rmRole.onchange=e=>{ S.room.role=e.target.value; roomWarned=false; save(); render(); roomConnect(); };
-  const rmCode=$('#rmCode'); if(rmCode) rmCode.onchange=e=>{ S.room.code=e.target.value; S.roomRev=0; save(); render(); roomConnect(); };
+  const rmCode=$('#rmCode'); if(rmCode) rmCode.onchange=e=>{
+    if(S.picks.length && !confirm(`Changing the room name moves you to a different, empty board.\n\nEveryone else stays on "${roomCode()}" and will stop seeing your picks.\n\nContinue?`)){ e.target.value=roomCode(); return; }
+    S.room.code=e.target.value; S.roomRev=0; save(); render(); roomConnect(); };
   const rmRe=$('#rmReconnect'); if(rmRe) rmRe.onclick=()=>{ roomConnect(); toast('Reconnecting…'); };
   $('#restoreState').onclick=()=>{ try{ const s=JSON.parse($('#stateBox').value); if(!Array.isArray(s.picks)) throw 0; if(!confirm('Replace the current draft with the pasted state?')) return; Object.assign(S,s); S.keepers=S.keepers||[]; S.marks=S.marks||{}; S.room=Object.assign({},DEFAULT.room,S.room||{}); lastSim=null; render(); roomConnect(); toast('Restored'); }catch(e){ toast('That box is not a valid backup'); } };
 }
