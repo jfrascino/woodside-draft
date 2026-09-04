@@ -794,7 +794,7 @@ function openSheet(pid){ sheetPid=pid; const p=byId.get(pid); const d=drafted.ge
   ${s?`<h3>Matchups — ${p.pos} vs each defense</h3><div class="row small" style="margin:4px 0 2px;gap:14px"><span>Weeks 1–14 <b class="heat" style="${easeStyle(s.season)}">${Math.round(s.season)}</b> ${easeWord(s.season)}</span><span>Playoffs ${S.playoff.join('–')} <b class="heat" style="${easeStyle(s.playoff)}">${s.playoff==null?'—':Math.round(s.playoff)}</b> ${easeWord(s.playoff)}</span><span>Weeks 1–4 <b class="heat" style="${easeStyle(s.early)}">${Math.round(s.early)}</b></span></div>
   <div class="wk">${s.weeks.map(w=>w.bye?`<div class="bye">BYE<span>w${w.w}</span></div>`:`<div class="${S.playoff.includes(w.w)?'po':''}" style="${easeStyle(w.ease)}" title="Week ${w.w}: ${w.home?'vs':'@'} ${w.opp} · softness ${Math.round(w.ease)}">${w.home?'':'@'}${w.opp}<span>w${w.w}</span></div>`).join('')}</div>
   <p class="small muted" style="margin:4px 0 10px">Softness 100 = most fantasy points allowed to ${p.pos}s. Blend of 2025 points allowed per game (65%) and 2026 defense outlook from DST consensus rank (35%). Outlined weeks are your playoffs.</p>`:''}
-  <div class="row" style="margin-top:6px"><button class="btn sm" data-mark="target" data-pid="${p.id}">${markOf(p)==='target'?'★ Target ✓':'☆ Target'}</button><button class="btn sm" data-mark="avoid" data-pid="${p.id}">${markOf(p)==='avoid'?'✕ Avoid ✓':'✕ Avoid'}</button>${!d&&canLog()&&(!S.picks.length||(S.keepers||[]).length)?`<select id="keeperBy" class="btn sm" title="Only for players already owned before the draft starts. Hidden once picks begin."><option value="">Keeper for…</option>${Array.from({length:T()},(_,i)=>i+1).map(t=>`<option value="${t}">${esc(teamName(t))}</option>`).join('')}</select>`:''}</div>
+  <div class="row" style="margin-top:6px"><button class="btn sm" data-mark="target" data-pid="${p.id}">${markOf(p)==='target'?'★ Target ✓':'☆ Target'}</button><button class="btn sm" data-mark="avoid" data-pid="${p.id}">${markOf(p)==='avoid'?'✕ Avoid ✓':'✕ Avoid'}</button></div>
   <div class="row" style="margin-top:6px">
     ${!canLog()?`<span class="small muted">Following the shared board — picks are logged by ${esc(roomState.by||'the scorekeeper')}.</span>`:''}
     ${canLog()&&!d?`${draftOver()?'<span class="small muted">Draft complete.</span>':onClock()
@@ -805,7 +805,6 @@ function openSheet(pid){ sheetPid=pid; const p=byId.get(pid); const d=drafted.ge
   </div>`;
   const sh=$('#sheet'); sh.innerHTML=html; sh.classList.add('open'); $('#sheetbg').classList.add('open'); sh.scrollTop=0;
   $('#closeSheet').onclick=closeSheet;
-  const kb=$('#keeperBy'); if(kb) kb.onchange=()=>{ if(kb.value){ S.keepers.push({pid:p.id,team:+kb.value}); closeSheet(); render(); pushRoom(); toast(`${p.name} kept by ${teamName(+kb.value)}`); } };
 }
 function closeSheet(){ $('#sheet').classList.remove('open'); $('#sheetbg').classList.remove('open'); sheetPid=null; }
 function draftPlayer(pid,team){ if(drafted.has(pid)) return; if(roomOn()&&roomState.s==='live'&&!isBoardOwner()){ toast('Only '+(roomState.by||'the scorekeeper')+' enters picks on this board.'); return; } if(!canLog()){ toast('Following the shared board — switch to “Log picks” in Setup to enter picks.'); return; } if(draftOver()){ toast('Draft is complete'); return; }
