@@ -262,6 +262,9 @@ input[type=search]{width:100%}
 .helpbar{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 2px 10px;margin-bottom:4px;background:var(--bg)}
 .helpbar span{font-family:var(--display);font-size:19px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .iconbtn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.boardhint{margin:0 0 8px;padding:7px 10px;background:var(--surface2);border-left:3px solid var(--line2);border-radius:0 8px 8px 0;font-size:13px;line-height:1.45;color:var(--muted)}
+.boardhint b{color:var(--ink)}
+.boardhint b.hot{color:var(--hot)}
 /* ---- roster ---- */
 .slots{display:grid;grid-template-columns:1fr;gap:6px;align-content:start}
 .slotwrap{display:grid;grid-template-columns:1fr;gap:12px}
@@ -722,6 +725,9 @@ function renderBoard(v){ const c=cur(); const nextK = onClock()? nextMineAfter(c
     <select id="sort"${tip('Change the order of the list below.')}><option value="ecr">Sort: expert rank</option><option value="adp">Sort: where he gets drafted</option><option value="proj">Sort: projected points</option><option value="vorp">Sort: value over waiver</option><option value="value">Sort: biggest bargains</option><option value="avail">Sort: most likely to last</option><option value="playoff">Sort: easiest playoff schedule</option><option value="season">Sort: easiest season schedule</option></select>
     <button class="chip" id="hide" aria-pressed="${S.hideDrafted}"${tip('On: the list shows only players still available. Off: drafted players stay visible so you can see who took them.')}>Hide taken</button></div>
     ${S.q.trim()&&!draftOver()?`<div class="qhint">${qt?`↵ Enter: <b>${esc(qt.name)}</b> → ${onClock()?'draft to '+esc(S.name):'taken by '+esc(teamName(qteam))}`:'no undrafted match'}</div>`:''}
+    ${canLog()&&!draftOver()?`<p class="boardhint">${onClock()
+        ? `<b>You're on the clock at #${cur()}.</b> Every row's button now says <b class="hot">Take</b> — tap it on the player you want and he joins your roster.`
+        : `<b>${esc(teamName(teamAt(cur())))} is picking (#${cur()}).</b> When they announce someone, find him and tap <b>Gone</b> — that logs him as taken by ${esc(teamName(teamAt(cur())))} and he drops off the list. The button turns orange and says <b class="hot">Take</b> when it's your turn.`}</p>`:''}
     ${isFollower()?`<p class="small" style="margin:0 0 8px;color:var(--accent)"><b>Following the shared board.</b> ${esc(roomState.by||'The scorekeeper')} logs every pick; they appear here automatically. To log picks yourself, switch to “Log picks” in Setup.</p>`:''}
     <div class="chips" style="margin-bottom:8px">${['ALL','TGT','QB','RB','WR','TE','FLEX','K','DST'].concat(irSlots()?['IR']:[]).map(x=>{const tp={ALL:'Every position.',TGT:'Only the players you starred as targets.',FLEX:'Running backs, receivers and tight ends together — the players who can fill your flex slot.',IR:'Players on injured reserve or PUP who qualify for your IR slot. A late-round stash here costs a pick but no bench spot.',QB:'Quarterbacks only.',RB:'Running backs only.',WR:'Wide receivers only.',TE:'Tight ends only.',K:'Kickers only.',DST:'Team defences only.'}[x]; return `<button class="chip pchip ${x}" data-pos="${x}" aria-pressed="${S.pos===x}"${tip(tp)}>${x==='TGT'?'★ Targets':x==='IR'?'+ IR stash':x}</button>`;}).join('')}</div>`;
   const list=filtered().slice(0,S.q?60:200);
